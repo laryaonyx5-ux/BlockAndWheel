@@ -1,6 +1,7 @@
 
 package com.colorwheel.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.colorwheel.ColorMap;
 
 import net.minecraft.client.KeyMapping;
@@ -22,8 +23,8 @@ public class ColorWheelClient implements ClientModInitializer {
             KeyMappingHelper.registerKeyMapping(
                     new KeyMapping(
                             "key.colorwheel.menu",
-                            KeyMapping.Type.KEYSYM,
-                            75,
+                            InputConstants.Type.KEYBOARD,
+                            InputConstants.KEY_K,
                             CATEGORY
                     )
             );
