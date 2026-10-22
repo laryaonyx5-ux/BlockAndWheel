@@ -113,7 +113,7 @@ public final class Objectives {
 			.replace("avoir", " ").replace("obtenir", " ").replace("posseder", " ").replace("posséder", " ")
 			.replace("trouver", " ").replace("ramasser", " ").replace("fabriquer", " ")
 			.replace("un ", " ").replace("une ", " ").replace("des ", " ").replace("de ", " ").replace("du ", " ")
-			.replace("bloc de ", " ").replace("bloc d ", " ").replace("bloc ", " ").trim();
+			.replace("bloc de ", " ").replace("bloc d ", " ").replace("bloc ", " ").replaceAll("\\bl\\s+", " ").trim();
 		searchable = frenchAlias(searchable);
 		int total = 0;
 		for (int i = 0; i < inv.getContainerSize(); i++) {
