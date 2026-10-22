@@ -111,7 +111,10 @@ public final class Objectives {
 		String normalized = normalize(query);
 		String searchable = normalized.replaceAll("\\b\\d+\\b", " ")
 			.replace("avoir", " ").replace("obtenir", " ").replace("posseder", " ").replace("posséder", " ")
-			.replace("un ", " ").replace("une ", " ").replace("des ", " ").replace("de ", " ").trim();
+			.replace("trouver", " ").replace("ramasser", " ").replace("fabriquer", " ")
+			.replace("un ", " ").replace("une ", " ").replace("des ", " ").replace("de ", " ").replace("du ", " ")
+			.replace("bloc de ", " ").replace("bloc d ", " ").replace("bloc ", " ").trim();
+		searchable = frenchAlias(searchable);
 		int total = 0;
 		for (int i = 0; i < inv.getContainerSize(); i++) {
 			ItemStack stack = inv.getItem(i);
@@ -123,6 +126,22 @@ public final class Objectives {
 			}
 		}
 		return total;
+	}
+
+	private static String frenchAlias(String query) {
+		return switch (query) {
+			case "herbe", "herbe haute", "bloc d herbe" -> "grass";
+			case "terre" -> "dirt";
+			case "pierre" -> "stone";
+			case "sable" -> "sand";
+			case "bois", "buches", "bûches" -> "log";
+			case "diamant", "diamants" -> "diamond";
+			case "fer" -> "iron";
+			case "charbon" -> "coal";
+			case "eau" -> "water";
+			case "feuilles" -> "leaves";
+			default -> query;
+		};
 	}
 
 	public static int requestedCount(String query) {

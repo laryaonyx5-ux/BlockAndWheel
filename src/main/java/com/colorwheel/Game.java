@@ -148,18 +148,31 @@ public final class Game {
 	/** Restaure le monde et remet la roue a zero, sans changer d'objectif. */
 	public static void requestRestorePlayerBlocks() {
 		post(server -> {
-			int restored = PlayerBlockHistory.restore(server);
-			setStatus("Blocs modifiés restaurés : " + restored, 100);
+			List<ServerPlayer> players = server.getPlayerList().getPlayers();
+			if (players.isEmpty()) {
+				setStatus("Aucun joueur à restaurer.", 100);
+				return;
+			}
+			ServerPlayer player = players.get(0);
+			ServerLevel level = (ServerLevel) player.level();
+			BlockPos playerPos = player.blockPosition();
+			removal = null; // éviter que la vague en cours ne recasse les blocs restaurés
+			int restored = PlayerBlockHistory.restoreChunk(level, playerPos.getX() >> 4, playerPos.getZ() >> 4);
+			setStatus("Blocs cassés/posés restaurés dans ce chunk : " + restored, 100);
 		});
 	}
 
+	/** Restaure les blocs du mod et les modifications du joueur dans le chunk actuel, puis remet la roue à zéro. */
 	public static void requestReset() {
 		post(server -> {
-			setStatus("Monde restauré, roue remise à zéro.", 100);
+			List<ServerPlayer> players = server.getPlayerList().getPlayers();
+			if (players.isEmpty()) {
+				setStatus("Aucun joueur : restauration impossible.", 100);
+				return;
+			}
+			setStatus("Restauration du chunk actuel et remise à zéro de la roue…", 100);
 			startReset(server, () -> {
-				if (running) {
-					enterCountdown();
-				}
+				if (running) enterCountdown();
 			});
 		});
 	}
@@ -381,7 +394,7 @@ public final class Game {
 	private static void beginSelection(ServerPlayer player) {
 		ServerLevel level = (ServerLevel) player.level();
 		if (Config.blockMode) {
-			Block block = pickBlock(level, player.blockPosition(), Config.radiusChunks * 16);
+			Block block = pickBlock(level, player.blockPosition(), Config.radiusChunks);
 			if (block == null) {
 				enterCountdown();
 				return;
@@ -413,14 +426,14 @@ public final class Game {
 	private static void finishShow(ServerPlayer player) {
 		ServerLevel level = (ServerLevel) player.level();
 		BlockPos center = player.blockPosition();
-		int r = Config.radiusChunks * 16;
+		int chunkRadius = Config.radiusChunks;
 		if (blockPhase) {
 			Block b = chosenBlock;
 			if (b != null) {
-				removal = new RemovalJob(level, center, r, null, b);
+				removal = new RemovalJob(level, center, chunkRadius, null, b);
 			}
 		} else if (chosenColor >= 0) {
-			removal = new RemovalJob(level, center, r, WheelColor.values()[chosenColor], null);
+			removal = new RemovalJob(level, center, chunkRadius, WheelColor.values()[chosenColor], null);
 			remainingMask &= ~(1 << chosenColor);
 		}
 		enterCountdown();
@@ -459,7 +472,7 @@ public final class Game {
 			int cur = Objectives.countItems(player, o.key(), o.suffix());
 			baseline = Math.min(baseline, cur);
 			objProgress = Math.min(cur, o.need());
-			done = cur >= o.need() && cur > baseline;
+			done = cur >= o.need();
 		} else if (o.kind() == Objectives.Kind.KILL) {
 			done = KILLED.contains(o.key());
 		} else if (o.kind() == Objectives.Kind.DIM) {
@@ -482,17 +495,23 @@ public final class Game {
 
 	// ================================================================== suppression
 
-	private static Block pickBlock(ServerLevel level, BlockPos c, int r) {
+	private static Block pickBlock(ServerLevel level, BlockPos c, int radiusChunks) {
 		Set<Block> found = new LinkedHashSet<>();
 		BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-		for (int i = 0; i < 800; i++) {
-			int dx = RND.nextInt(2 * r + 1) - r;
-			int dy = RND.nextInt(2 * r + 1) - r;
-			int dz = RND.nextInt(2 * r + 1) - r;
-			if (dx * dx + dy * dy + dz * dz > r * r) {
-				continue;
-			}
-			p.set(c.getX() + dx, c.getY() + dy, c.getZ() + dz);
+		int chunkX = c.getX() >> 4;
+		int chunkZ = c.getZ() >> 4;
+		int sizeChunks = Math.max(1, radiusChunks);
+		int minChunkX = chunkX - (sizeChunks / 2);
+		int minChunkZ = chunkZ - (sizeChunks / 2);
+		int minX = minChunkX << 4;
+		int maxX = ((minChunkX + sizeChunks) << 4) - 1;
+		int minZ = minChunkZ << 4;
+		int maxZ = ((minChunkZ + sizeChunks) << 4) - 1;
+		for (int i = 0; i < 1600; i++) {
+			int x = minX + RND.nextInt(maxX - minX + 1);
+			int y = level.getMinY() + RND.nextInt(Math.max(1, level.getMaxY() - level.getMinY()));
+			int z = minZ + RND.nextInt(maxZ - minZ + 1);
+			p.set(x, y, z);
 			if (!level.hasChunkAt(p)) {
 				continue;
 			}
@@ -520,57 +539,58 @@ public final class Game {
 		return REMOVED.computeIfAbsent(level.dimension().toString(), k -> new Long2IntOpenHashMap());
 	}
 
-	/** Supprime les blocs tranche par tranche (une "vague") pour ne pas figer le jeu. */
+	/** Parcourt un carré de radiusChunks × radiusChunks chunks, sur toute la hauteur du monde. */
 	private static final class RemovalJob {
 		private final ServerLevel level;
-		private final BlockPos center;
-		private final int r;
 		private final WheelColor color;
 		private final Block block;
 		private final Long2IntOpenHashMap record;
-		private int x;
-		private int dy;
-		private int dz;
+		private final int minX, maxX, minZ, maxZ, minY, maxY;
+		private int x, y, z;
 		private int sinceSave;
 
-		RemovalJob(ServerLevel level, BlockPos center, int r, WheelColor color, Block block) {
+		RemovalJob(ServerLevel level, BlockPos center, int radiusChunks, WheelColor color, Block block) {
 			this.level = level;
-			this.center = center;
-			this.r = r;
 			this.color = color;
 			this.block = block;
 			this.record = removedFor(level);
-			this.x = -r;
-			this.dy = -r;
-			this.dz = -r;
+			int cx = center.getX() >> 4;
+			int cz = center.getZ() >> 4;
+			int sizeChunks = Math.max(1, radiusChunks);
+			int minChunkX = cx - (sizeChunks / 2);
+			int minChunkZ = cz - (sizeChunks / 2);
+			this.minX = minChunkX << 4;
+			this.maxX = ((minChunkX + sizeChunks) << 4) - 1;
+			this.minZ = minChunkZ << 4;
+			this.maxZ = ((minChunkZ + sizeChunks) << 4) - 1;
+			this.minY = level.getMinY();
+			this.maxY = level.getMaxY() - 1;
+			this.x = minX;
+			this.y = minY;
+			this.z = minZ;
 		}
 
 		boolean step() {
 			BlockState air = Blocks.AIR.defaultBlockState();
 			BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-			// Budget de positions par tick : même un rayon de 64 chunks ne bloque pas
-			// le thread serveur pendant plusieurs secondes d'un seul coup.
 			int budget = 50_000;
-			while (budget-- > 0 && x <= r) {
-				if (x * x + dy * dy + dz * dz <= r * r) {
-					pos.set(center.getX() + x, center.getY() + dy, center.getZ() + dz);
-					if (level.hasChunkAt(pos)) {
-						BlockState state = level.getBlockState(pos);
-						if (!state.isAir() && !(Config.protectContainers && state.hasBlockEntity())) {
-							Block b = state.getBlock();
-							boolean match = block != null ? b == block : ColorMap.of(b) == color;
-							if (match) {
-								record.putIfAbsent(pos.asLong(), Block.getId(state));
-								level.setBlock(pos, air, SET_FLAGS);
-							}
+			while (budget-- > 0 && x <= maxX) {
+				pos.set(x, y, z);
+				if (level.hasChunkAt(pos)) {
+					BlockState state = level.getBlockState(pos);
+					if (!state.isAir() && !(Config.protectContainers && state.hasBlockEntity())) {
+						Block b = state.getBlock();
+						boolean match = block != null ? b == block : ColorMap.matches(b, color);
+						if (match) {
+							record.putIfAbsent(pos.asLong(), Block.getId(state));
+							level.setBlock(pos, air, SET_FLAGS);
 						}
 					}
 				}
-				// Avance lexicographique sur tout le volume, sans gros tableau temporaire.
-				if (++dz > r) {
-					dz = -r;
-					if (++dy > r) {
-						dy = -r;
+				if (++z > maxZ) {
+					z = minZ;
+					if (++y > maxY) {
+						y = minY;
 						x++;
 					}
 				}
@@ -579,8 +599,9 @@ public final class Game {
 				sinceSave = 0;
 				saveState();
 			}
-			return x > r;
-		}	}
+			return x > maxX;
+		}
+	}
 
 	private static void stepRemoval() {
 		if (removal != null && removal.step()) {
@@ -615,7 +636,7 @@ public final class Game {
 		}
 	}
 
-	/** Remet tous les blocs supprimes, remet la roue a zero. onDone est lance a la fin. */
+	/** Restaure les blocs supprimés par la roue dans le chunk actuel, puis remet la roue à zéro. */
 	private static void startReset(MinecraftServer server, Runnable onDone) {
 		removal = null;
 		remainingMask = WheelColor.ALL_MASK;
@@ -624,32 +645,48 @@ public final class Game {
 		chosenBlock = null;
 		lastBlock = null;
 
-		List<Batch> batches = new ArrayList<>();
-		for (ServerLevel level : server.getAllLevels()) {
-			String key = level.dimension().toString();
-			Long2IntOpenHashMap m = REMOVED.get(key);
-			if (m == null || m.isEmpty()) {
-				continue;
-			}
-			long[] keys = new long[m.size()];
-			int[] ids = new int[m.size()];
-			int i = 0;
-			for (Long2IntMap.Entry e : m.long2IntEntrySet()) {
-				keys[i] = e.getLongKey();
-				ids[i] = e.getIntValue();
-				i++;
-			}
-			batches.add(new Batch(level, key, keys, ids));
-		}
-		restoreDone = onDone;
-		if (batches.isEmpty()) {
-			REMOVED.clear();
+		List<ServerPlayer> players = server.getPlayerList().getPlayers();
+		if (players.isEmpty()) {
 			regenerating = false;
-			restore = null;
-			saveState();
-			if (onDone != null) {
-				onDone.run();
+			if (onDone != null) onDone.run();
+			return;
+		}
+		ServerPlayer player = players.get(0);
+		ServerLevel currentLevel = (ServerLevel) player.level();
+		int chunkX = player.blockPosition().getX() >> 4;
+		int chunkZ = player.blockPosition().getZ() >> 4;
+		List<Batch> batches = new ArrayList<>();
+		String key = currentLevel.dimension().toString();
+		Long2IntOpenHashMap m = REMOVED.get(key);
+		if (m != null && !m.isEmpty()) {
+			List<Long> selectedKeys = new ArrayList<>();
+			List<Integer> selectedIds = new ArrayList<>();
+			for (Long2IntMap.Entry e : m.long2IntEntrySet()) {
+				BlockPos pos = BlockPos.of(e.getLongKey());
+				if ((pos.getX() >> 4) == chunkX && (pos.getZ() >> 4) == chunkZ) {
+					selectedKeys.add(e.getLongKey());
+					selectedIds.add(e.getIntValue());
+				}
 			}
+			if (!selectedKeys.isEmpty()) {
+				long[] keys = new long[selectedKeys.size()];
+				int[] ids = new int[selectedIds.size()];
+				for (int i = 0; i < keys.length; i++) { keys[i] = selectedKeys.get(i); ids[i] = selectedIds.get(i); }
+				batches.add(new Batch(currentLevel, key, keys, ids));
+			}
+		}
+		restoreDone = () -> {
+			int playerBlocks = PlayerBlockHistory.restoreChunk(currentLevel, chunkX, chunkZ);
+			setStatus("Chunk restauré. Blocs du joueur : " + playerBlocks, 100);
+			if (onDone != null) onDone.run();
+		};
+		if (batches.isEmpty()) {
+			restore = null;
+			regenerating = false;
+			saveState();
+			Runnable cb = restoreDone;
+			restoreDone = null;
+			if (cb != null) cb.run();
 			return;
 		}
 		restore = new RestoreJob(batches);
@@ -658,35 +695,33 @@ public final class Game {
 
 	private static void stepRestore() {
 		RestoreJob job = restore;
-		if (job == null) {
-			return;
-		}
+		if (job == null) return;
 		int budget = 4000;
 		while (budget > 0 && job.current < job.batches.size()) {
 			Batch b = job.batches.get(job.current);
 			int n = Math.min(budget, b.keys.length - b.pos);
 			for (int i = 0; i < n; i++) {
-				BlockPos p = BlockPos.of(b.keys[b.pos]);
-				b.level.setBlock(p, Block.stateById(b.ids[b.pos]), SET_FLAGS);
+				BlockPos pos = BlockPos.of(b.keys[b.pos]);
+				if (b.level.hasChunkAt(pos)) b.level.setBlock(pos, Block.stateById(b.ids[b.pos]), SET_FLAGS);
 				b.pos++;
 			}
 			budget -= n;
-			if (b.pos >= b.keys.length) {
-				job.current++;
-			}
+			if (b.pos >= b.keys.length) job.current++;
 		}
 		if (job.current >= job.batches.size()) {
 			for (Batch b : job.batches) {
-				REMOVED.remove(b.dimKey);
+				Long2IntOpenHashMap map = REMOVED.get(b.dimKey);
+				if (map != null) {
+					for (long key : b.keys) map.remove(key);
+					if (map.isEmpty()) REMOVED.remove(b.dimKey);
+				}
 			}
 			restore = null;
 			regenerating = false;
 			saveState();
 			Runnable cb = restoreDone;
 			restoreDone = null;
-			if (cb != null) {
-				cb.run();
-			}
+			if (cb != null) cb.run();
 		}
 	}
 

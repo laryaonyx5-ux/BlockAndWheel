@@ -127,13 +127,13 @@ public class ConfigScreen extends Screen {
 		y += ROW;
 
 		// Restaurer le monde
-		this.addRenderableWidget(Button.builder(Component.literal("Restaurer le monde + roue à zéro"), btn -> {
+		this.addRenderableWidget(Button.builder(Component.literal("Restaurer ce chunk + roue à zéro"), btn -> {
 			Game.requestReset();
 		}).bounds(cx - 100, y, 200, 20).build());
 		y += ROW;
 
 		// Restaurer les blocs modifiés manuellement, indépendamment du reset du monde
-		this.addRenderableWidget(Button.builder(Component.literal("Réinitialiser les blocs cassés ou posés"), btn -> {
+		this.addRenderableWidget(Button.builder(Component.literal("Restaurer les blocs cassés/posés de ce chunk"), btn -> {
 			Game.requestRestorePlayerBlocks();
 		}).bounds(cx - 100, y, 200, 20).build());
 		y += ROW;
@@ -168,7 +168,9 @@ public class ConfigScreen extends Screen {
 	}
 
 	private Component radiusText() {
-		return Component.literal("Distance : " + Config.radiusChunks + " chunks (" + (Config.radiusChunks * 16) + " blocs)");
+		int size = Config.radiusChunks * 16;
+		return Component.literal("Zone : " + Config.radiusChunks + "×" + Config.radiusChunks
+				+ " chunks (" + size + "×" + size + " blocs)");
 	}
 
 	private Component intervalText() {

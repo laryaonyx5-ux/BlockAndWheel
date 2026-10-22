@@ -89,7 +89,7 @@ public class ColorWheelMod implements ModInitializer {
 						.executes(ctx -> {
 							Config.radiusChunks = IntegerArgumentType.getInteger(ctx, "chunks");
 							Config.save();
-							ctx.getSource().sendSuccess(() -> Component.literal("Rayon : " + Config.radiusChunks + " chunks (" + (Config.radiusChunks * 16) + " blocs)"), false);
+							ctx.getSource().sendSuccess(() -> Component.literal("Portée : " + (Config.radiusChunks == 1 ? "chunk actuel" : (Config.radiusChunks * 2 - 1) + "×" + (Config.radiusChunks * 2 - 1) + " chunks")), false);
 							return 1;
 						})))
 				.then(Commands.literal("interval")

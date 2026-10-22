@@ -42,7 +42,7 @@ public final class Config {
 		Properties p = new Properties();
 		try (InputStream in = Files.newInputStream(f)) {
 			p.load(in);
-			radiusChunks = clamp(parse(p.getProperty("radiusChunks"), parse(p.getProperty("radius"), 16) / 16), MIN_RADIUS_CHUNKS, MAX_RADIUS_CHUNKS);
+			radiusChunks = clamp(parse(p.getProperty("radiusChunks"), Math.max(1, parse(p.getProperty("radius"), 16) / 16)), MIN_RADIUS_CHUNKS, MAX_RADIUS_CHUNKS);
 			customObjective = p.getProperty("customObjective", customObjective);
 			intervalSeconds = clamp(parse(p.getProperty("intervalSeconds"), intervalSeconds), MIN_INTERVAL, MAX_INTERVAL);
 			blockMode = "block".equalsIgnoreCase(p.getProperty("mode", blockMode ? "block" : "wheel"));
