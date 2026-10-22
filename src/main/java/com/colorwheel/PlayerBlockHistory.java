@@ -88,7 +88,7 @@ public final class PlayerBlockHistory {
             for (int i = 0; i < count; i++) {
                 long pos = in.readLong();
                 BlockState state = net.minecraft.world.level.block.Block.stateById(in.readInt());
-                CompoundTag data = in.readBoolean() ? TagParser.parseTag(in.readUTF()) : null;
+                CompoundTag data = in.readBoolean() ? TagParser.parseCompoundFully(in.readUTF()) : null;
                 map.put(pos, new Snapshot(state, data));
             }
         }
