@@ -1,0 +1,26 @@
+{
+	"schemaVersion": 1,
+	"id": "colorwheel",
+	"version": "${version}",
+	"name": "Color Wheel",
+	"description": "Une roue de couleurs ou un bloc tire au sort disparait autour de toi. Survis jusqu'a la fin de l'objectif !",
+	"authors": [
+		"Toi"
+	],
+	"license": "CC0-1.0",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.colorwheel.ColorWheelMod"
+		],
+		"client": [
+			"com.colorwheel.client.ColorWheelClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
