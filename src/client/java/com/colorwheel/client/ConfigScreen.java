@@ -31,7 +31,7 @@ public class ConfigScreen extends Screen {
 	@Override
 	protected void init() {
 		int cx = this.width / 2;
-		int y = this.height / 2 - 142;
+		int y = this.height / 2 - 160;
 		runningShown = Game.running;
 
 		// Mode : Roue / Bloc
@@ -132,9 +132,13 @@ public class ConfigScreen extends Screen {
 		}).bounds(cx - 100, y, 200, 20).build());
 		y += ROW;
 
-		// Restaurer les blocs modifiés manuellement, indépendamment du reset du monde
-		this.addRenderableWidget(Button.builder(Component.literal("Restaurer les blocs cassés/posés de ce chunk"), btn -> {
-			Game.requestRestorePlayerBlocks();
+		// Actions séparées : les blocs cassés et les blocs posés sont réinitialisés indépendamment.
+		this.addRenderableWidget(Button.builder(Component.literal("Réinitialiser les blocs cassés"), btn -> {
+			Game.requestRestoreBrokenBlocks();
+		}).bounds(cx - 100, y, 200, 20).build());
+		y += ROW;
+		this.addRenderableWidget(Button.builder(Component.literal("Réinitialiser les blocs posés"), btn -> {
+			Game.requestRestorePlacedBlocks();
 		}).bounds(cx - 100, y, 200, 20).build());
 		y += ROW;
 

@@ -29,14 +29,13 @@ public class ColorWheelMod implements ModInitializer {
 		ServerTickEvents.END_SERVER_TICK.register(Game::tick);
 
 		PlayerBlockBreakEvents.BEFORE.register((world, player, pos, state, blockEntity) -> {
-			PlayerBlockHistory.capture(world, pos);
+			PlayerBlockHistory.captureBroken(world, pos);
 			return true;
 		});
 		UseBlockCallback.EVENT.register((player, world, hand, hit) -> {
 			if (!world.isClientSide() && player.getItemInHand(hand).getItem() instanceof BlockItem) {
-				var pos = hit.getBlockPos();
-				PlayerBlockHistory.capture(world, pos);
-				PlayerBlockHistory.capture(world, pos.relative(hit.getDirection()));
+				var placePos = hit.getBlockPos().relative(hit.getDirection());
+				PlayerBlockHistory.capturePlaced(world, placePos);
 			}
 			return InteractionResult.PASS;
 		});
@@ -89,7 +88,7 @@ public class ColorWheelMod implements ModInitializer {
 						.executes(ctx -> {
 							Config.radiusChunks = IntegerArgumentType.getInteger(ctx, "chunks");
 							Config.save();
-							ctx.getSource().sendSuccess(() -> Component.literal("Portée : " + (Config.radiusChunks == 1 ? "chunk actuel" : (Config.radiusChunks * 2 - 1) + "×" + (Config.radiusChunks * 2 - 1) + " chunks")), false);
+							ctx.getSource().sendSuccess(() -> Component.literal("Zone : " + Config.radiusChunks + "×" + Config.radiusChunks + " chunks (" + (Config.radiusChunks * 16) + "×" + (Config.radiusChunks * 16) + " blocs)"), false);
 							return 1;
 						})))
 				.then(Commands.literal("interval")

@@ -28,6 +28,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -145,21 +148,31 @@ public final class Game {
 		});
 	}
 
-	/** Restaure le monde et remet la roue a zero, sans changer d'objectif. */
-	public static void requestRestorePlayerBlocks() {
+	/** Restaure les blocs cassés par le joueur dans le chunk courant. */
+	public static void requestRestoreBrokenBlocks() {
 		post(server -> {
-			List<ServerPlayer> players = server.getPlayerList().getPlayers();
-			if (players.isEmpty()) {
-				setStatus("Aucun joueur à restaurer.", 100);
-				return;
-			}
-			ServerPlayer player = players.get(0);
-			ServerLevel level = (ServerLevel) player.level();
-			BlockPos playerPos = player.blockPosition();
-			removal = null; // éviter que la vague en cours ne recasse les blocs restaurés
-			int restored = PlayerBlockHistory.restoreChunk(level, playerPos.getX() >> 4, playerPos.getZ() >> 4);
-			setStatus("Blocs cassés/posés restaurés dans ce chunk : " + restored, 100);
+			ServerPlayer player = firstPlayer(server);
+			if (player == null) { setStatus("Aucun joueur à restaurer.", 100); return; }
+			BlockPos pos = player.blockPosition();
+			int restored = PlayerBlockHistory.restoreBroken((ServerLevel) player.level(), pos.getX() >> 4, pos.getZ() >> 4);
+			setStatus("Blocs cassés restaurés : " + restored, 100);
 		});
+	}
+
+	/** Annule les poses de blocs du joueur dans le chunk courant. */
+	public static void requestRestorePlacedBlocks() {
+		post(server -> {
+			ServerPlayer player = firstPlayer(server);
+			if (player == null) { setStatus("Aucun joueur à restaurer.", 100); return; }
+			BlockPos pos = player.blockPosition();
+			int restored = PlayerBlockHistory.restorePlaced((ServerLevel) player.level(), pos.getX() >> 4, pos.getZ() >> 4);
+			setStatus("Blocs posés réinitialisés : " + restored, 100);
+		});
+	}
+
+	private static ServerPlayer firstPlayer(MinecraftServer server) {
+		List<ServerPlayer> players = server.getPlayerList().getPlayers();
+		return players.isEmpty() ? null : players.get(0);
 	}
 
 	/** Restaure les blocs du mod et les modifications du joueur dans le chunk actuel, puis remet la roue à zéro. */
@@ -548,6 +561,7 @@ public final class Game {
 		private final int minX, maxX, minZ, maxZ, minY, maxY;
 		private int x, y, z;
 		private int sinceSave;
+		private boolean mobsProcessed;
 
 		RemovalJob(ServerLevel level, BlockPos center, int radiusChunks, WheelColor color, Block block) {
 			this.level = level;
@@ -578,7 +592,8 @@ public final class Game {
 				pos.set(x, y, z);
 				if (level.hasChunkAt(pos)) {
 					BlockState state = level.getBlockState(pos);
-					if (!state.isAir() && !(Config.protectContainers && state.hasBlockEntity())) {
+					if (!state.isAir() && !PlayerBlockHistory.isPlayerPlaced(level, pos)
+							&& !(Config.protectContainers && state.hasBlockEntity())) {
 						Block b = state.getBlock();
 						boolean match = block != null ? b == block : ColorMap.matches(b, color);
 						if (match) {
@@ -595,12 +610,61 @@ public final class Game {
 					}
 				}
 			}
+			if (x > maxX && !mobsProcessed) {
+				mobsProcessed = true;
+				if (color != null) removeMatchingMobs();
+			}
 			if (++sinceSave >= 200) {
 				sinceSave = 0;
 				saveState();
 			}
 			return x > maxX;
 		}
+
+		private void removeMatchingMobs() {
+			AABB area = new AABB(minX, minY, minZ, maxX + 1.0, maxY + 1.0, maxZ + 1.0);
+			for (Mob mob : level.getEntitiesOfClass(Mob.class, area)) {
+				if (mob.isRemoved()) continue;
+				if (mobMatchesColor(mob, color)) mob.discard();
+			}
+		}
+	}
+
+	private static boolean mobMatchesColor(Mob mob, WheelColor color) {
+		String id = BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).getPath().toLowerCase(java.util.Locale.ROOT);
+		String name = mob.hasCustomName() ? mob.getCustomName().getString().toLowerCase(java.util.Locale.ROOT) : "";
+		String text = id + " " + name;
+		// Variantes nommées par le joueur peuvent explicitement indiquer leur couleur.
+		for (WheelColor c : WheelColor.values()) {
+			if (c == color && name.contains(c.name().toLowerCase(java.util.Locale.ROOT))) return true;
+		}
+		boolean match = switch (color) {
+			case BLACK -> containsAny(text, "wither_skeleton", "black_cat", "enderman", "bat", "warden", "black_mooshroom");
+			case WHITE -> containsAny(text, "ghast", "polar_bear", "snow_golem", "white_cat", "white_fox", "white_rabbit", "skeleton", "stray");
+			case GRAY -> containsAny(text, "silverfish", "endermite", "iron_golem", "gray_cat", "wolf", "dolphin", "goat");
+			case BROWN -> containsAny(text, "cow", "donkey", "mule", "llama", "villager", "camel", "brown_mooshroom", "brown_rabbit", "hoglin", "piglin", "bee");
+			case RED -> containsAny(text, "mooshroom", "zoglin", "red_mooshroom", "blaze", "dragon", "salmon", "pufferfish");
+			case ORANGE -> containsAny(text, "magma_cube", "fox", "strider", "ocelot", "orange_cat", "blaze", "armadillo");
+			case YELLOW -> containsAny(text, "bee", "blaze", "yellow", "ocelot", "golden");
+			case GREEN -> containsAny(text, "creeper", "slime", "zombie", "drowned", "turtle", "frog", "green");
+			case BLUE -> containsAny(text, "allay", "vex", "blue", "dolphin", "guardian", "phantom");
+			case PURPLE -> containsAny(text, "enderman", "shulker", "witch", "purple");
+			case PINK -> containsAny(text, "pig", "axolotl", "pink", "hoglin");
+		};
+		if (match) return true;
+		// Tout mob non reconnu reçoit une couleur de repli (gris) pour ne pas être ignoré par la roue.
+		if (color != WheelColor.GRAY) return false;
+		return !containsAny(text, "wither_skeleton", "black_cat", "enderman", "bat", "warden", "black_mooshroom",
+			"ghast", "polar_bear", "snow_golem", "white_cat", "white_fox", "white_rabbit", "skeleton", "stray",
+			"cow", "donkey", "mule", "llama", "villager", "camel", "brown_mooshroom", "brown_rabbit", "hoglin", "piglin", "bee",
+			"mooshroom", "zoglin", "dragon", "salmon", "pufferfish", "magma_cube", "fox", "strider", "ocelot", "orange_cat", "armadillo",
+			"yellow", "golden", "creeper", "slime", "zombie", "drowned", "turtle", "frog", "allay", "vex", "guardian", "phantom",
+			"shulker", "witch", "pig", "axolotl", "pink");
+	}
+
+	private static boolean containsAny(String text, String... parts) {
+		for (String part : parts) if (text.contains(part)) return true;
+		return false;
 	}
 
 	private static void stepRemoval() {
@@ -676,8 +740,7 @@ public final class Game {
 			}
 		}
 		restoreDone = () -> {
-			int playerBlocks = PlayerBlockHistory.restoreChunk(currentLevel, chunkX, chunkZ);
-			setStatus("Chunk restauré. Blocs du joueur : " + playerBlocks, 100);
+			setStatus("Blocs supprimés par la roue restaurés. Les modifications du joueur sont conservées.", 120);
 			if (onDone != null) onDone.run();
 		};
 		if (batches.isEmpty()) {
